@@ -1,0 +1,21 @@
+.clipboard-compare-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 !important;
+  overflow: hidden;
+}
+.clipboard-compare-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.clipboard-compare-status { flex: 1; color: var(--text-muted); font-size: var(--font-ui-small); }
+.clipboard-compare-toolbar button { min-width: 28px; padding: 2px 8px; }
+.clipboard-compare-labels { display: flex; padding: 6px 12px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.clipboard-compare-labels span { flex: 1; }
+.clipboard-compare-editor { flex: 1; min-height: 0; overflow: hidden; }
+/* Obsidian's global form styles must not reshape Monaco's hidden input controls. */
+.clipboard-compare-editor textarea { box-shadow: none !important; border-radius: 0 !important; }

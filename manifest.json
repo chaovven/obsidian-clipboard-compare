@@ -1,0 +1,10 @@
+{
+  "id": "clipboard-compare",
+  "name": "Clipboard Compare",
+  "version": "0.1.0",
+  "minAppVersion": "1.14.5",
+  "description": "Compare the active note with your clipboard and apply individual changes, just like VS Code.",
+  "author": "Chao Wen",
+  "authorUrl": "https://github.com/chaovven",
+  "isDesktopOnly": true
+}
