@@ -5,7 +5,8 @@ import 'monaco-editor/editor/browser/coreCommands.js';
 import 'monaco-editor/editor/browser/widget/diffEditor/diffEditor.contribution.js';
 import 'monaco-editor/editor/browser/widget/diffEditor/registrations.contribution.js';
 import 'monaco-editor/editor/contrib/find/browser/findController.js';
-import 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js';
+import { PasteAction } from 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js';
+import { InMemoryClipboardMetadataManager } from 'monaco-editor/editor/browser/controller/editContext/clipboardUtils.js';
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js';
 import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations.js';
 
@@ -29,6 +30,28 @@ function acquireWorker(): void {
   }
   consumers++;
 }
+
+const pasteTargets = new Set<monaco.editor.ICodeEditor>();
+
+/**
+ * Obsidian exposes Node's `process`, so Monaco assumes it is desktop VS Code: it binds Cmd+V
+ * to its paste command, which then waits for an Electron clipboard service that doesn't exist.
+ * Read the clipboard ourselves, as Monaco does on the web.
+ */
+PasteAction?.addImplementation(10001, 'clipboard-compare', () => {
+  const editor = [...pasteTargets].find(target => target.hasTextFocus());
+  if (!editor) return false;
+  return navigator.clipboard.readText().then(text => {
+    if (!text) return;
+    const metadata = InMemoryClipboardMetadataManager.INSTANCE.get(text);
+    editor.trigger('keyboard', 'paste', {
+      text,
+      pasteOnNewLine: !!metadata?.isFromEmptySelection && editor.getOption(monaco.editor.EditorOption.emptySelectionClipboard),
+      multicursorText: metadata?.multicursorText ?? null,
+      mode: metadata?.mode ?? null,
+    });
+  });
+});
 
 /** The same diff widget used by VS Code; no custom diff algorithm or merge logic. */
 export class ClipboardDiff {
@@ -66,6 +89,7 @@ export class ClipboardDiff {
       hideUnchangedRegions: { enabled: false },
     });
     this.editor.setModel({ original: this.original, modified: this.modified });
+    pasteTargets.add(this.editor.getModifiedEditor());
     this.subscriptions.push(this.modified.onDidChangeContent(() => {
       if (!this.updating) onChange(this.modified.getValue());
     }));
@@ -97,6 +121,7 @@ export class ClipboardDiff {
     if (this.disposed) return;
     this.disposed = true;
     this.observer.disconnect();
+    pasteTargets.delete(this.editor.getModifiedEditor());
     for (const subscription of this.subscriptions) subscription.dispose();
     this.editor.dispose();
     this.original.dispose();
