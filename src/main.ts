@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Plugin, TextFileView, TFile, type ViewStateResult } from 'obsidian';
+import { MarkdownView, Menu, Notice, Plugin, TextFileView, TFile, type ViewStateResult, type WorkspaceLeaf } from 'obsidian';
 import { ClipboardDiff } from './diff';
 
 export const VIEW_TYPE = 'clipboard-compare';
@@ -6,15 +6,23 @@ export const VIEW_TYPE = 'clipboard-compare';
 interface CompareState extends Record<string, unknown> {
   file?: string;
   clipboard?: string;
-  sideBySide?: boolean;
-  hideUnchanged?: boolean;
-  ignoreWhitespace?: boolean;
-  wordWrap?: boolean;
 }
 
+export interface CompareOptions {
+  sideBySide: boolean;
+  hideUnchanged: boolean;
+  ignoreWhitespace: boolean;
+  wordWrap: boolean;
+}
+
+export const DEFAULT_OPTIONS: CompareOptions = { sideBySide: true, hideUnchanged: false, ignoreWhitespace: true, wordWrap: false };
+
 export default class ClipboardComparePlugin extends Plugin {
-  onload(): void {
-    this.registerView(VIEW_TYPE, leaf => new ClipboardCompareView(leaf));
+  options: CompareOptions = { ...DEFAULT_OPTIONS };
+
+  async onload(): Promise<void> {
+    this.options = { ...DEFAULT_OPTIONS, ...(await this.loadData() as Partial<CompareOptions> | null) };
+    this.registerView(VIEW_TYPE, leaf => new ClipboardCompareView(leaf, this));
     this.addCommand({
       id: 'compare-active-file-with-clipboard',
       name: 'Compare active file with clipboard',
@@ -53,6 +61,14 @@ export default class ClipboardComparePlugin extends Plugin {
     }
   }
 
+  /** Options are a global preference: the last choice applies to every open and future comparison. */
+  async setOption(key: keyof CompareOptions, value: boolean): Promise<void> {
+    this.options = { ...this.options, [key]: value };
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      if (leaf.view instanceof ClipboardCompareView) leaf.view.applyOptions();
+    }
+    await this.saveData(this.options);
+  }
 }
 
 /** TextFileView delegates saving, renames, deletion and external updates to Obsidian. */
@@ -60,10 +76,13 @@ export class ClipboardCompareView extends TextFileView {
   private diff?: ClipboardDiff;
   private clipboard = '';
   private text = '';
-  private state: CompareState = {};
   private status?: HTMLElement;
   private themeObserver?: MutationObserver;
   private loading = false;
+
+  constructor(leaf: WorkspaceLeaf, private readonly plugin: ClipboardComparePlugin) {
+    super(leaf);
+  }
 
   getViewType(): string { return VIEW_TYPE; }
   getDisplayText(): string { return `Clipboard ↔ ${this.file?.name ?? 'Note'}`; }
@@ -110,33 +129,32 @@ export class ClipboardCompareView extends TextFileView {
     this.diff?.setTheme(this.contentEl.ownerDocument.body.classList.contains('theme-dark'));
   }
 
-  private applyOptions(): void {
-    this.diff?.setSideBySide(this.state.sideBySide !== false);
-    this.diff?.setHideUnchanged(this.state.hideUnchanged === true);
-    this.diff?.setIgnoreWhitespace(this.state.ignoreWhitespace !== false);
-    this.diff?.setWordWrap(this.state.wordWrap === true);
+  applyOptions(): void {
+    const options = this.plugin.options;
+    this.diff?.setSideBySide(options.sideBySide);
+    this.diff?.setHideUnchanged(options.hideUnchanged);
+    this.diff?.setIgnoreWhitespace(options.ignoreWhitespace);
+    this.diff?.setWordWrap(options.wordWrap);
   }
 
   private showOptions(event: MouseEvent): void {
     const menu = new Menu();
-    const options: [keyof CompareState, string, boolean][] = [
-      ['sideBySide', 'Side by side', this.state.sideBySide !== false],
-      ['hideUnchanged', 'Hide unchanged regions', this.state.hideUnchanged === true],
-      ['ignoreWhitespace', 'Ignore leading and trailing whitespace', this.state.ignoreWhitespace !== false],
-      ['wordWrap', 'Word wrap', this.state.wordWrap === true],
+    const options: [keyof CompareOptions, string][] = [
+      ['sideBySide', 'Side by side'],
+      ['hideUnchanged', 'Hide unchanged regions'],
+      ['ignoreWhitespace', 'Ignore leading and trailing whitespace'],
+      ['wordWrap', 'Word wrap'],
     ];
-    for (const [key, title, enabled] of options) {
+    for (const [key, title] of options) {
+      const enabled = this.plugin.options[key];
       menu.addItem(item => item.setTitle(title).setChecked(enabled).onClick(() => {
-        this.state = { ...this.state, [key]: !enabled };
-        this.applyOptions();
-        this.app.workspace.requestSaveLayout();
+        void this.plugin.setOption(key, !enabled);
       }));
     }
     menu.showAtMouseEvent(event);
   }
 
   async setState(state: CompareState, result: ViewStateResult): Promise<void> {
-    this.state = { ...state };
     this.clipboard = state.clipboard ?? '';
     if (this.diff && this.diff.original.getValue() !== this.clipboard) this.diff.original.setValue(this.clipboard);
     await super.setState(state, result);
@@ -145,7 +163,7 @@ export class ClipboardCompareView extends TextFileView {
 
   getState(): CompareState {
     // Persist the snapshot so a restored comparison never reads an unrelated clipboard.
-    return { ...super.getState(), ...this.state, file: this.file?.path, clipboard: this.clipboard };
+    return { ...super.getState(), file: this.file?.path, clipboard: this.clipboard };
   }
 
   getViewData(): string { return this.text; }
