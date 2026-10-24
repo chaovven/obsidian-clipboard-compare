@@ -1,6 +1,6 @@
 {
   "name": "obsidian-clipboard-compare",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Compare the active note with the clipboard using VS Code's diff editor.",
   "author": "Chao Wen",
